@@ -1,9 +1,13 @@
 const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 
-// 🔐 TUS DATOS FALSOS (cámbialos luego por los reales)
 const token = process.env.DISCORD_TOKEN;
 const CLIENT_ID = "1477872580999250011";
 const GUILD_ID = "1035352042320961566";
+
+if (!token) {
+  console.error("❌ DISCORD_TOKEN no está definido.");
+  process.exit(1);
+}
 
 const commands = [
   new SlashCommandBuilder()
@@ -27,27 +31,16 @@ const commands = [
     .toJSON()
 ];
 
-const rest = new REST({ version: '10' }).setToken(TOKEN);
+const rest = new REST({ version: '10' }).setToken(token);
 
 (async () => {
   try {
-
-    console.log("🧹 Limpiando comandos anteriores...");
-
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: [] }
-    );
-
-    console.log("🚀 Registrando comando nuevo...");
-
+    console.log("🚀 Registrando comandos...");
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
-
-    console.log("🔥 Comando actualizado correctamente.");
-
+    console.log("✅ Comandos actualizados correctamente.");
   } catch (error) {
     console.error(error);
   }

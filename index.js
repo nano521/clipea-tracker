@@ -1,7 +1,9 @@
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
 const axios = require('axios');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
+const { Parser } = require('json2csv');
+const fs = require('fs');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
@@ -13,9 +15,6 @@ const RAPID_API_HOST = "instagram-scraper-stable-api.p.rapidapi.com";
 
 let db;
 
-/* ===========================
-   INICIALIZAR BASE DE DATOS
-=========================== */
 async function initDatabase() {
   db = await open({
     filename: './reels.db',
@@ -37,42 +36,34 @@ async function initDatabase() {
   console.log("✅ Base de datos lista");
 }
 
-/* ===========================
-   BOT LISTO
-=========================== */
 client.once('ready', () => {
   console.log(`🚀 Bot listo como ${client.user.tag}`);
 });
 
-/* ===========================
-   COMANDO SUBMIT
-=========================== */
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  /* ===========================
+     SUBMIT
+  ============================ */
   if (interaction.commandName === 'submit') {
 
     const link = interaction.options.getString('link');
 
     try {
-
       await interaction.deferReply({ ephemeral: true });
 
-      // Validar duplicado
       const existing = await db.get(
         `SELECT id FROM submissions WHERE link = ?`,
         link
       );
 
       if (existing) {
-        console.log("⚠️ Intento duplicado:", link);
-
         return await interaction.editReply({
           content: "❌ Este reel ya fue enviado anteriormente."
         });
       }
 
-      // Llamada API
       const response = await axios.get(
         'https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data.php',
         {
@@ -83,38 +74,30 @@ client.on('interactionCreate', async interaction => {
           headers: {
             'x-rapidapi-key': RAPID_API_KEY,
             'x-rapidapi-host': RAPID_API_HOST
-          },
-          timeout: 15000
+          }
         }
       );
 
       const data = response.data;
-
       const views = data.video_view_count || 0;
       const plays = data.video_play_count || 0;
       const timestamp = data.taken_at_timestamp;
 
       if (!timestamp) {
-        console.log("❌ No timestamp recibido");
-
         return await interaction.editReply({
           content: "❌ No se pudo validar el reel."
         });
       }
 
-      // Validar 24 horas
       const now = Math.floor(Date.now() / 1000);
       const hoursPassed = (now - timestamp) / 3600;
 
       if (hoursPassed > 24) {
-        console.log("⛔ Reel con más de 24 horas:", link);
-
         return await interaction.editReply({
           content: "❌ El reel debe tener menos de 24 horas."
         });
       }
 
-      // Guardar en DB
       await db.run(
         `INSERT INTO submissions (user_id, username, link, views, plays)
          VALUES (?, ?, ?, ?, ?)`,
@@ -125,42 +108,61 @@ client.on('interactionCreate', async interaction => {
         plays
       );
 
-      console.log("📦 Reel guardado en DB:", link);
-
       return await interaction.editReply({
         content: "✅ Reel registrado para revisión."
       });
 
     } catch (error) {
-
-      console.error("❌ ERROR EN SUBMIT:", error.message);
-
-      if (!interaction.replied) {
-        await interaction.editReply({
-          content: "❌ Error procesando el reel."
-        });
-      }
+      console.error(error);
+      await interaction.editReply({
+        content: "❌ Error procesando el reel."
+      });
     }
   }
+
+  /* ===========================
+     EXPORTAR CSV
+  ============================ */
+  if (interaction.commandName === 'exportar') {
+
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const rows = await db.all(`SELECT * FROM submissions`);
+
+      if (rows.length === 0) {
+        return await interaction.editReply({
+          content: "⚠️ La base de datos está vacía."
+        });
+      }
+
+      const parser = new Parser();
+      const csv = parser.parse(rows);
+
+      fs.writeFileSync('submissions.csv', csv);
+
+      const attachment = new AttachmentBuilder('submissions.csv');
+
+      await interaction.editReply({
+        content: "📁 Aquí tienes la base de datos completa:",
+        files: [attachment]
+      });
+
+    } catch (error) {
+      console.error(error);
+      await interaction.editReply({
+        content: "❌ Error exportando la base."
+      });
+    }
+  }
+
 });
 
-/* ===========================
-   INICIAR TODO + DEBUG LOGIN
-=========================== */
 (async () => {
   try {
-
     await initDatabase();
-
-    console.log("🔑 Intentando login...");
-    console.log("Token existe:", !!DISCORD_TOKEN);
-
     await client.login(DISCORD_TOKEN);
-
-    console.log("✅ Login exitoso");
-
   } catch (err) {
-    console.error("❌ ERROR INICIANDO APP:");
     console.error(err);
   }
 })();
