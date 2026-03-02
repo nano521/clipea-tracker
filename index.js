@@ -58,9 +58,9 @@ client.on('interactionCreate', async interaction => {
 
       await interaction.deferReply({ ephemeral: true });
 
-      /* ===== VALIDAR DUPLICADO ===== */
+      // Validar duplicado
       const existing = await db.get(
-        `SELECT * FROM submissions WHERE link = ?`,
+        `SELECT id FROM submissions WHERE link = ?`,
         link
       );
 
@@ -72,7 +72,7 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      /* ===== LLAMADA API ===== */
+      // Llamada API
       const response = await axios.get(
         'https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data.php',
         {
@@ -95,26 +95,26 @@ client.on('interactionCreate', async interaction => {
       const timestamp = data.taken_at_timestamp;
 
       if (!timestamp) {
-        console.log("❌ No timestamp:", data);
+        console.log("❌ No timestamp recibido");
 
         return await interaction.editReply({
           content: "❌ No se pudo validar el reel."
         });
       }
 
-      /* ===== VALIDAR 24 HORAS ===== */
+      // Validar 24 horas
       const now = Math.floor(Date.now() / 1000);
       const hoursPassed = (now - timestamp) / 3600;
 
       if (hoursPassed > 24) {
-        console.log("⛔ Más de 24 horas:", link);
+        console.log("⛔ Reel con más de 24 horas:", link);
 
         return await interaction.editReply({
-          content: "❌ El reel debe tener menos de 24 horas desde su publicación."
+          content: "❌ El reel debe tener menos de 24 horas."
         });
       }
 
-      /* ===== GUARDAR EN DB ===== */
+      // Guardar en DB
       await db.run(
         `INSERT INTO submissions (user_id, username, link, views, plays)
          VALUES (?, ?, ?, ?, ?)`,
@@ -125,40 +125,42 @@ client.on('interactionCreate', async interaction => {
         plays
       );
 
-      console.log("📦 GUARDADO EN DB:", {
-        usuario: interaction.user.username,
-        link,
-        views,
-        plays
-      });
-
-      /* ===== MOSTRAR TODA LA DB (DEBUG) ===== */
-      const rows = await db.all("SELECT * FROM submissions");
-      console.log("📊 ESTADO ACTUAL DE LA DB:", rows);
+      console.log("📦 Reel guardado en DB:", link);
 
       return await interaction.editReply({
-        content: "✅ Reel registrado correctamente y enviado para revisión."
+        content: "✅ Reel registrado para revisión."
       });
 
     } catch (error) {
 
-      console.error("❌ ERROR:", error.response?.data || error.message);
+      console.error("❌ ERROR EN SUBMIT:", error.message);
 
-      return await interaction.editReply({
-        content: "❌ Error procesando el reel."
-      });
+      if (!interaction.replied) {
+        await interaction.editReply({
+          content: "❌ Error procesando el reel."
+        });
+      }
     }
   }
 });
 
 /* ===========================
-   INICIAR TODO
+   INICIAR TODO + DEBUG LOGIN
 =========================== */
 (async () => {
   try {
+
     await initDatabase();
+
+    console.log("🔑 Intentando login...");
+    console.log("Token existe:", !!DISCORD_TOKEN);
+
     await client.login(DISCORD_TOKEN);
+
+    console.log("✅ Login exitoso");
+
   } catch (err) {
-    console.error("❌ Error iniciando la app:", err);
+    console.error("❌ ERROR INICIANDO APP:");
+    console.error(err);
   }
 })();
