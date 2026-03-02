@@ -34,7 +34,7 @@ async function initDatabase() {
   console.log("✅ Base de datos lista");
 }
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log("🚀 BOT CONECTADO COMO:", client.user.tag);
 });
 
