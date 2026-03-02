@@ -1,168 +1,20 @@
-const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
-const axios = require('axios');
-const sqlite3 = require('sqlite3').verbose();
-const { open } = require('sqlite');
-const { Parser } = require('json2csv');
-const fs = require('fs');
+const { Client, GatewayIntentBits } = require('discord.js');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const RAPID_API_KEY = process.env.RAPID_API_KEY;
-const RAPID_API_HOST = "instagram-scraper-stable-api.p.rapidapi.com";
+const token = process.env.DISCORD_TOKEN;
 
-let db;
-
-async function initDatabase() {
-  db = await open({
-    filename: './reels.db',
-    driver: sqlite3.Database
-  });
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS submissions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT,
-      username TEXT,
-      link TEXT UNIQUE,
-      views INTEGER,
-      plays INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  console.log("✅ Base de datos lista");
-}
+console.log("Intentando login...");
 
 client.once('ready', () => {
-  console.log(`🚀 Bot listo como ${client.user.tag}`);
+  console.log("🚀 BOT CONECTADO:", client.user.tag);
 });
 
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-
-  /* ===========================
-     SUBMIT
-  ============================ */
-  if (interaction.commandName === 'submit') {
-
-    const link = interaction.options.getString('link');
-
-    try {
-      await interaction.deferReply({ ephemeral: true });
-
-      const existing = await db.get(
-        `SELECT id FROM submissions WHERE link = ?`,
-        link
-      );
-
-      if (existing) {
-        return await interaction.editReply({
-          content: "❌ Este reel ya fue enviado anteriormente."
-        });
-      }
-
-      const response = await axios.get(
-        'https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data.php',
-        {
-          params: {
-            reel_post_code_or_url: link,
-            type: "reel"
-          },
-          headers: {
-            'x-rapidapi-key': RAPID_API_KEY,
-            'x-rapidapi-host': RAPID_API_HOST
-          }
-        }
-      );
-
-      const data = response.data;
-      const views = data.video_view_count || 0;
-      const plays = data.video_play_count || 0;
-      const timestamp = data.taken_at_timestamp;
-
-      if (!timestamp) {
-        return await interaction.editReply({
-          content: "❌ No se pudo validar el reel."
-        });
-      }
-
-      const now = Math.floor(Date.now() / 1000);
-      const hoursPassed = (now - timestamp) / 3600;
-
-      if (hoursPassed > 24) {
-        return await interaction.editReply({
-          content: "❌ El reel debe tener menos de 24 horas."
-        });
-      }
-
-      await db.run(
-        `INSERT INTO submissions (user_id, username, link, views, plays)
-         VALUES (?, ?, ?, ?, ?)`,
-        interaction.user.id,
-        interaction.user.username,
-        link,
-        views,
-        plays
-      );
-
-      return await interaction.editReply({
-        content: "✅ Reel registrado para revisión."
-      });
-
-    } catch (error) {
-      console.error(error);
-      await interaction.editReply({
-        content: "❌ Error procesando el reel."
-      });
-    }
-  }
-
-  /* ===========================
-     EXPORTAR CSV
-  ============================ */
-  if (interaction.commandName === 'exportar') {
-
-    try {
-      await interaction.deferReply({ ephemeral: true });
-
-      const rows = await db.all(`SELECT * FROM submissions`);
-
-      if (rows.length === 0) {
-        return await interaction.editReply({
-          content: "⚠️ La base de datos está vacía."
-        });
-      }
-
-      const parser = new Parser();
-      const csv = parser.parse(rows);
-
-      fs.writeFileSync('submissions.csv', csv);
-
-      const attachment = new AttachmentBuilder('submissions.csv');
-
-      await interaction.editReply({
-        content: "📁 Aquí tienes la base de datos completa:",
-        files: [attachment]
-      });
-
-    } catch (error) {
-      console.error(error);
-      await interaction.editReply({
-        content: "❌ Error exportando la base."
-      });
-    }
-  }
-
-});
-
-(async () => {
-  try {
-    await initDatabase();
-    await client.login(DISCORD_TOKEN);
-  } catch (err) {
+client.login(token)
+  .then(() => console.log("Login promise resuelta"))
+  .catch(err => {
+    console.error("ERROR EN LOGIN:");
     console.error(err);
-  }
-})();
+  });
