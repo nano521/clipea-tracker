@@ -13,7 +13,10 @@ const RAPID_API_HOST = "instagram-scraper-stable-api.p.rapidapi.com";
 
 let db;
 
-(async () => {
+/* ===========================
+   INICIALIZAR BASE DE DATOS
+=========================== */
+async function initDatabase() {
   db = await open({
     filename: './reels.db',
     driver: sqlite3.Database
@@ -30,12 +33,20 @@ let db;
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
-})();
 
+  console.log("✅ Base de datos lista");
+}
+
+/* ===========================
+   BOT LISTO
+=========================== */
 client.once('ready', () => {
   console.log(`🚀 Bot listo como ${client.user.tag}`);
 });
 
+/* ===========================
+   COMANDOS
+=========================== */
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -45,12 +56,12 @@ client.on('interactionCreate', async interaction => {
 
     try {
 
-      await interaction.reply({
-        content: "⏳ Procesando...",
-        ephemeral: true
-      });
+      // 🔥 IMPORTANTE: evitar timeout de 3s
+      await interaction.deferReply({ ephemeral: true });
 
-      // 🔥 Verificar duplicado
+      /* ===========================
+         VALIDAR DUPLICADO
+      ============================ */
       const existing = await db.get(
         `SELECT * FROM submissions WHERE link = ?`,
         link
@@ -62,7 +73,9 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      // 🔥 Llamada API
+      /* ===========================
+         LLAMADA API
+      ============================ */
       const response = await axios.get(
         'https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data.php',
         {
@@ -73,7 +86,8 @@ client.on('interactionCreate', async interaction => {
           headers: {
             'x-rapidapi-key': RAPID_API_KEY,
             'x-rapidapi-host': RAPID_API_HOST
-          }
+          },
+          timeout: 15000
         }
       );
 
@@ -89,7 +103,9 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      // 🔥 Validar 24 horas
+      /* ===========================
+         VALIDAR 24 HORAS
+      ============================ */
       const now = Math.floor(Date.now() / 1000);
       const hoursPassed = (now - timestamp) / 3600;
 
@@ -99,7 +115,9 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      // ✅ Guardar SIEMPRE (sin importar views)
+      /* ===========================
+         GUARDAR EN DB
+      ============================ */
       await db.run(
         `INSERT INTO submissions (user_id, username, link, views, plays)
          VALUES (?, ?, ?, ?, ?)`,
@@ -111,10 +129,11 @@ client.on('interactionCreate', async interaction => {
       );
 
       return await interaction.editReply({
-        content: "✅ Reel enviado para revisión."
+        content: "✅ Reel registrado correctamente y enviado para revisión."
       });
 
     } catch (error) {
+
       console.error("❌ ERROR:", error.response?.data || error.message);
 
       return await interaction.editReply({
@@ -124,4 +143,14 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-client.login(DISCORD_TOKEN);
+/* ===========================
+   INICIAR TODO CORRECTAMENTE
+=========================== */
+(async () => {
+  try {
+    await initDatabase();
+    await client.login(DISCORD_TOKEN);
+  } catch (err) {
+    console.error("❌ Error iniciando la app:", err);
+  }
+})();
