@@ -45,7 +45,7 @@ client.once('ready', () => {
 });
 
 /* ===========================
-   COMANDOS
+   COMANDO SUBMIT
 =========================== */
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -56,26 +56,23 @@ client.on('interactionCreate', async interaction => {
 
     try {
 
-      // 🔥 IMPORTANTE: evitar timeout de 3s
       await interaction.deferReply({ ephemeral: true });
 
-      /* ===========================
-         VALIDAR DUPLICADO
-      ============================ */
+      /* ===== VALIDAR DUPLICADO ===== */
       const existing = await db.get(
         `SELECT * FROM submissions WHERE link = ?`,
         link
       );
 
       if (existing) {
+        console.log("⚠️ Intento duplicado:", link);
+
         return await interaction.editReply({
           content: "❌ Este reel ya fue enviado anteriormente."
         });
       }
 
-      /* ===========================
-         LLAMADA API
-      ============================ */
+      /* ===== LLAMADA API ===== */
       const response = await axios.get(
         'https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data.php',
         {
@@ -98,26 +95,26 @@ client.on('interactionCreate', async interaction => {
       const timestamp = data.taken_at_timestamp;
 
       if (!timestamp) {
+        console.log("❌ No timestamp:", data);
+
         return await interaction.editReply({
           content: "❌ No se pudo validar el reel."
         });
       }
 
-      /* ===========================
-         VALIDAR 24 HORAS
-      ============================ */
+      /* ===== VALIDAR 24 HORAS ===== */
       const now = Math.floor(Date.now() / 1000);
       const hoursPassed = (now - timestamp) / 3600;
 
       if (hoursPassed > 24) {
+        console.log("⛔ Más de 24 horas:", link);
+
         return await interaction.editReply({
           content: "❌ El reel debe tener menos de 24 horas desde su publicación."
         });
       }
 
-      /* ===========================
-         GUARDAR EN DB
-      ============================ */
+      /* ===== GUARDAR EN DB ===== */
       await db.run(
         `INSERT INTO submissions (user_id, username, link, views, plays)
          VALUES (?, ?, ?, ?, ?)`,
@@ -127,6 +124,17 @@ client.on('interactionCreate', async interaction => {
         views,
         plays
       );
+
+      console.log("📦 GUARDADO EN DB:", {
+        usuario: interaction.user.username,
+        link,
+        views,
+        plays
+      });
+
+      /* ===== MOSTRAR TODA LA DB (DEBUG) ===== */
+      const rows = await db.all("SELECT * FROM submissions");
+      console.log("📊 ESTADO ACTUAL DE LA DB:", rows);
 
       return await interaction.editReply({
         content: "✅ Reel registrado correctamente y enviado para revisión."
@@ -144,7 +152,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 /* ===========================
-   INICIAR TODO CORRECTAMENTE
+   INICIAR TODO
 =========================== */
 (async () => {
   try {
