@@ -7,8 +7,8 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN || "FAKE_DISCORD_TOKEN";
-const RAPID_API_KEY = process.env.RAPID_API_KEY || "FAKE_RAPID_KEY";
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const RAPID_API_KEY = process.env.RAPID_API_KEY;
 const RAPID_API_HOST = "instagram-scraper-stable-api.p.rapidapi.com";
 
 let db;
@@ -24,15 +24,12 @@ let db;
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT,
       username TEXT,
-      link TEXT,
+      link TEXT UNIQUE,
       views INTEGER,
       plays INTEGER,
-      status TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
-
-  console.log("✅ Base de datos lista");
 })();
 
 client.once('ready', () => {
@@ -41,99 +38,89 @@ client.once('ready', () => {
 
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== 'submit') return;
 
-  const link = interaction.options.getString('link');
+  if (interaction.commandName === 'submit') {
 
-  try {
+    const link = interaction.options.getString('link');
 
-    await interaction.reply({
-      content: "⏳ Procesando...",
-      ephemeral: true
-    });
+    try {
 
-    // =========================
-    // 1️⃣ VALIDAR DUPLICADO
-    // =========================
-    const existing = await db.get(
-      `SELECT * FROM submissions WHERE link = ? AND user_id = ?`,
-      link,
-      interaction.user.id
-    );
-
-    if (existing) {
-      return interaction.editReply({
-        content: "❌ Este reel ya fue enviado anteriormente."
+      await interaction.reply({
+        content: "⏳ Procesando...",
+        ephemeral: true
       });
-    }
 
-    // =========================
-    // 2️⃣ PEDIR DATOS A RAPIDAPI
-    // =========================
-    const response = await axios.get(
-      'https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data.php',
-      {
-        params: {
-          reel_post_code_or_url: link,
-          type: "reel"
-        },
-        headers: {
-          'x-rapidapi-key': RAPID_API_KEY,
-          'x-rapidapi-host': RAPID_API_HOST
-        }
+      // 🔥 Verificar duplicado
+      const existing = await db.get(
+        `SELECT * FROM submissions WHERE link = ?`,
+        link
+      );
+
+      if (existing) {
+        return await interaction.editReply({
+          content: "❌ Este reel ya fue enviado anteriormente."
+        });
       }
-    );
 
-    const data = response.data;
+      // 🔥 Llamada API
+      const response = await axios.get(
+        'https://instagram-scraper-stable-api.p.rapidapi.com/get_media_data.php',
+        {
+          params: {
+            reel_post_code_or_url: link,
+            type: "reel"
+          },
+          headers: {
+            'x-rapidapi-key': RAPID_API_KEY,
+            'x-rapidapi-host': RAPID_API_HOST
+          }
+        }
+      );
 
-    const views = data.video_view_count || 0;
-    const plays = data.video_play_count || 0;
+      const data = response.data;
 
-    // =========================
-    // 3️⃣ VALIDAR 24 HORAS
-    // =========================
-    const now = Date.now();
-    const publishedAt = data.taken_at_timestamp * 1000;
-    const hoursDiff = (now - publishedAt) / (1000 * 60 * 60);
+      const views = data.video_view_count || 0;
+      const plays = data.video_play_count || 0;
+      const timestamp = data.taken_at_timestamp;
 
-    if (hoursDiff > 24) {
-      return interaction.editReply({
-        content: "❌ Este reel tiene más de 24 horas de publicado."
+      if (!timestamp) {
+        return await interaction.editReply({
+          content: "❌ No se pudo validar el reel."
+        });
+      }
+
+      // 🔥 Validar 24 horas
+      const now = Math.floor(Date.now() / 1000);
+      const hoursPassed = (now - timestamp) / 3600;
+
+      if (hoursPassed > 24) {
+        return await interaction.editReply({
+          content: "❌ El reel debe tener menos de 24 horas desde su publicación."
+        });
+      }
+
+      // ✅ Guardar SIEMPRE (sin importar views)
+      await db.run(
+        `INSERT INTO submissions (user_id, username, link, views, plays)
+         VALUES (?, ?, ?, ?, ?)`,
+        interaction.user.id,
+        interaction.user.username,
+        link,
+        views,
+        plays
+      );
+
+      return await interaction.editReply({
+        content: "✅ Reel enviado para revisión."
+      });
+
+    } catch (error) {
+      console.error("❌ ERROR:", error.response?.data || error.message);
+
+      return await interaction.editReply({
+        content: "❌ Error procesando el reel."
       });
     }
-
-    // =========================
-    // 4️⃣ DEFINIR STATUS INTERNO
-    // =========================
-    const status = views >= 1000000 ? "calificado" : "pendiente";
-
-    // =========================
-    // 5️⃣ GUARDAR EN BASE
-    // =========================
-    await db.run(
-      `INSERT INTO submissions (user_id, username, link, views, plays, status)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      interaction.user.id,
-      interaction.user.username,
-      link,
-      views,
-      plays,
-      status
-    );
-
-    // =========================
-    // 6️⃣ MENSAJE FINAL SIMPLE
-    // =========================
-    await interaction.editReply({
-      content: "✅ Reel enviado para revisión."
-    });
-
-  } catch (error) {
-    console.error("❌ ERROR:", error.response?.data || error.message);
-
-    await interaction.editReply({
-      content: "❌ Error procesando el reel."
-    });
   }
 });
 
